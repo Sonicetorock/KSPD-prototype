@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heat map</title>
+
+    <!-- leaflet cdn link -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.0/papaparse.min.js"></script>
+    <script src="./leaflet-heat.js"></script>
+
+    <script>
+        // Map initialization 
+        var map = L.map('map').setView([12.9716, 77.5946], 13);
+
+        // OSM layer
+        var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        });
+        osm.addTo(map);
+
+        // Create a marker for user's location
+        var userMarker = L.marker([0, 0]).addTo(map);
+
+        // Fetching dangerous locations from CSV
+        fetch('latlong.csv')
+            .then(response => response.text())
+            .then(csvData => {
+                console.log(csvData); // Print CSV data to console
+
+                // Parsing CSV data
+                var addressPoints = Papa.parse(csvData, { header: true }).data;
+
+                // Converting data to latLng format
+                var latLngData = [];
+                addressPoints.forEach(function (point) {
+                    var latitude = parseFloat(point.Latitude);
+                    var longitude = parseFloat(point.Longitude);
+                    if (!isNaN(latitude) && !isNaN(longitude)) {
+                        latLngData.push([latitude, longitude]);
+                    }
+                });
+
+                console.log(latLngData); // Print latLngData to console
+
+                // Creating heat layer and adding it to the map
+                var heat = L.heatLayer(latLngData).addTo(map);
+
+                // Function to send notification via Telegram Bot API
+                function sendTelegramNotification(message) {
+                    var telegramBotToken = '6806808527:AAF7r1dHthCFe2eA1nZV-djlptgWJql4hvQ';
+                    var chatId = '2121548271'; // You need to obtain the chat ID of the user
+
+                    var url = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
+                    var data = {
+                        chat_id: chatId,
+                        text: message
+                    };
+
+                    fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Failed to send Telegram notification');
+                        }
+                        console.log('Telegram notification sent successfully');
+                    })
+                    .catch(error => {
+                        console.error('Error sending Telegram notification:', error);
+                    });
+                }
+
+                // Watch user's current location
+                if (navigator.geolocation) {
+                    navigator.geolocation.watchPosition(function(position) {
+                        var userLatLng = [position.coords.latitude, position.coords.longitude];
+                        console.log("User's current location:", userLatLng);
+
+                        // Update user marker position
+                        userMarker.setLatLng(userLatLng);
+                        
+                        // Check if user is within certain distance from dangerous locations
+                        var dangerousDistance = 1000; // Adjust this distance as needed
+                        var isNearDangerousLocation = false;
+                        latLngData.forEach(function(dangerousLocation) {
+                            var distance = map.distance(userLatLng, dangerousLocation);
+                            if (distance <= dangerousDistance) {
+                                isNearDangerousLocation = true;
+                                return;
+                            }
+                        });
+
+                        if (isNearDangerousLocation) {
+                            sendTelegramNotification("You are approaching a dangerous location!");
+                        }
+                    });
+                } else {
+                    console.error("Geolocation is not supported by this browser.");
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching CSV file:', error);
+            });
+    </script>
+</body>
+</html>
